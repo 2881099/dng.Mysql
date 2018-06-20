@@ -125,7 +125,7 @@ namespace MySql.Data.MySqlClient {
 		/// 查询指定字段，返回元组或单值
 		/// </summary>
 		/// <typeparam name="T">元组或单值，如：.Aggregate&lt;(int id, string name)&gt;("id,title")，或 .Aggregate&lt;int&gt;("id")</typeparam>
-		/// <param name="field">返回的字段，用逗号分隔，如：id,name</param>
+		/// <param name="fields">返回的字段，用逗号分隔，如：id,name</param>
 		/// <returns></returns>
 		public List<T> Aggregate<T>(string fields) {
 			string limit = _skip > 0 || _limit > 0 ? string.Format(" \r\nlimit {0},{1}", Math.Max(0, _skip), _limit > 0 ? _limit : -1) : string.Empty;

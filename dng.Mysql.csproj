@@ -4,16 +4,20 @@
     <AssemblyName>dng.Mysql</AssemblyName>
     <PackageId>dng.Mysql</PackageId>
     <RootNamespace>dng.Mysql</RootNamespace>
-    <Version>1.0.1</Version>
+    <Version>1.0.3</Version>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageProjectUrl>https://github.com/2881099/dng.Mysql</PackageProjectUrl>
     <Description>dotnetgen_mysql生成器所需mysql数据库基础封装</Description>
     <RepositoryUrl>https://github.com/2881099/dng.Mysql</RepositoryUrl>
     <PackageTags>dotnetgen dotnet mysql mariadb 三层 生成器</PackageTags>
+    <WarningLevel>3</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DocumentationFile>bin\Debug\netstandard2.0\dng.Mysql.xml</DocumentationFile>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Google.Protobuf" Version="3.5.1" />
-	  <PackageReference Include="CSRedisCore" Version="2.1.2" />
+	  <PackageReference Include="CSRedisCore" Version="2.1.3" />
 	  <PackageReference Include="Microsoft.Extensions.Logging" Version="2.1.0" />
 	  <PackageReference Include="Newtonsoft.Json" Version="11.0.2" />
 	  <PackageReference Include="MySql.Data" Version="8.0.11" />
