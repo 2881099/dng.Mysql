@@ -14,12 +14,12 @@ namespace MySql.Data.MySqlClient {
 				string name = _dals[b].GetType().Name;
 				objNames[b - 1] = string.Concat("Obj_", name[0].ToString().ToLower(), name.Substring(1));
 			}
-			if (string.IsNullOrEmpty(cacheKey)) {
+			if (expireSeconds > 0 && string.IsNullOrEmpty(cacheKey)) {
 				sql = this.ToString();
 				cacheKey = sql.Substring(sql.IndexOf(" \r\nFROM ") + 8);
 			}
 			List<object> cacheList = expireSeconds > 0 ? new List<object>() : null;
-			return await CSRedis.QuickHelperBase.CacheAsync(cacheKey, expireSeconds, async () => {
+			return await SqlHelper.CacheShellAsync(cacheKey, expireSeconds, async () => {
 				List<TReturnInfo> ret = new List<TReturnInfo>();
 				if (string.IsNullOrEmpty(sql)) sql = this.ToString();
 				await _exec.ExecuteReaderAsync(async dr => {

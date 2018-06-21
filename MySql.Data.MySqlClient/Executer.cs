@@ -1,25 +1,25 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Linq;
+using System.Text;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace MySql.Data.MySqlClient {
 	public partial class Executer : IDisposable {
 
 		public bool IsTracePerformance { get; set; } = string.Compare(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", true) == 0;
-		public static ILogger LogStatic;
-		public ILogger Log { get { return LogStatic; } set { LogStatic = value; } }
-		public ConnectionPool Pool { get; }
+		internal ILogger Log { get; set; }
+		public ConnectionPool Pool { get; } = new ConnectionPool();
 		public Executer() { }
-		public Executer(ILogger log, string connectionString) {
-			this.Log = log;
-			this.Pool = new ConnectionPool(connectionString);
-		}
 
 		void LoggerException(MySqlCommand cmd, Exception e, DateTime dt, string logtxt) {
 			if (IsTracePerformance) {
@@ -253,7 +253,7 @@ namespace MySql.Data.MySqlClient {
 			var tid = Thread.CurrentThread.ManagedThreadId;
 			List<string> keys = null;
 			if (key == null || key.Any() == false) return _preRemoveKeys.TryGetValue(tid, out keys) ? keys.ToArray() : new string[0];
-			this.Log.LogDebug($"线程{tid}事务预删除Redis {Newtonsoft.Json.JsonConvert.SerializeObject(key)}");
+			Log.LogDebug($"线程{tid}事务预删除Redis {Newtonsoft.Json.JsonConvert.SerializeObject(key)}");
 			if (_preRemoveKeys.TryGetValue(tid, out keys) == false)
 				lock (_preRemoveKeys_lock)
 					if (_preRemoveKeys.TryGetValue(tid, out keys) == false) {
@@ -315,12 +315,12 @@ namespace MySql.Data.MySqlClient {
 
 			var f001 = isCommit ? "提交" : "回滚";
 			try {
-				this.Log.LogDebug($"线程{tran.Conn.ThreadId}事务{f001}，批量删除Redis {Newtonsoft.Json.JsonConvert.SerializeObject(removeKeys)}");
-				CSRedis.QuickHelperBase.Remove(removeKeys);
+				Log.LogDebug($"线程{tran.Conn.ThreadId}事务{f001}，批量删除Redis {Newtonsoft.Json.JsonConvert.SerializeObject(removeKeys)}");
+				SqlHelper.CacheRemove(removeKeys);
 				if (isCommit) tran.Transaction.Commit();
 				else tran.Transaction.Rollback();
 			} catch (Exception ex) {
-				Executer.LogStatic.LogError($"数据库出错（{f001}事务）：{ex.Message} {ex.StackTrace}");
+				Log.LogError($"数据库出错（{f001}事务）：{ex.Message} {ex.StackTrace}");
 			} finally {
 				this.Pool.ReleaseConnection(tran.Conn);
 			}

@@ -33,10 +33,6 @@ namespace MySql.Data.MySqlClient {
 			}
 		}
 
-		public ConnectionPool(string connectionString) {
-			ConnectionString = connectionString;
-		}
-
 		public SqlConnection2 GetFreeConnection() {
 			SqlConnection2 conn = null;
 			if (FreeConnections.Count > 0)
@@ -57,6 +53,7 @@ namespace MySql.Data.MySqlClient {
 			return conn;
 		}
 		public SqlConnection2 GetConnection() {
+			if (string.IsNullOrEmpty(ConnectionString)) throw new Exception("ConnectionString 未设置");
 			var conn = GetFreeConnection();
 			if (conn == null) {
 				ManualResetEventSlim wait = new ManualResetEventSlim(false);
@@ -73,6 +70,7 @@ namespace MySql.Data.MySqlClient {
 		}
 
 		async public Task<SqlConnection2> GetConnectionAsync() {
+			if (string.IsNullOrEmpty(ConnectionString)) throw new Exception("ConnectionString 未设置");
 			var conn = GetFreeConnection();
 			if (conn == null) {
 				TaskCompletionSource<SqlConnection2> tcs = new TaskCompletionSource<SqlConnection2>();
