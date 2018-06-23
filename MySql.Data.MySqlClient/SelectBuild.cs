@@ -64,7 +64,7 @@ namespace MySql.Data.MySqlClient {
 				cacheKey = sql.Substring(sql.IndexOf(" \r\nFROM ") + 8);
 			}
 			List<object> cacheList = expireSeconds > 0 ? new List<object>() : null;
-			return SqlHelper.CacheShell(cacheKey, expireSeconds, () => {
+			return _exec.CacheShell(cacheKey, expireSeconds, () => {
 				List<TReturnInfo> ret = new List<TReturnInfo>();
 				if (string.IsNullOrEmpty(sql)) sql = this.ToString();
 				_exec.ExecuteReader(dr => {

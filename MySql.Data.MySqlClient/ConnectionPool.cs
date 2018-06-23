@@ -10,11 +10,11 @@ namespace MySql.Data.MySqlClient {
 	/// </summary>
 	public partial class ConnectionPool {
 
-		public int MaxPoolSize = 32;
-		public List<SqlConnection2> AllConnections = new List<SqlConnection2>();
-		public Queue<SqlConnection2> FreeConnections = new Queue<SqlConnection2>();
+		private int _poolsize = 50;
+		public List<Connection2> AllConnections = new List<Connection2>();
+		public Queue<Connection2> FreeConnections = new Queue<Connection2>();
 		public Queue<ManualResetEventSlim> GetConnectionQueue = new Queue<ManualResetEventSlim>();
-		public Queue<TaskCompletionSource<SqlConnection2>> GetConnectionAsyncQueue = new Queue<TaskCompletionSource<SqlConnection2>>();
+		public Queue<TaskCompletionSource<Connection2>> GetConnectionAsyncQueue = new Queue<TaskCompletionSource<Connection2>>();
 		private static object _lock = new object();
 		private static object _lock_GetConnectionQueue = new object();
 		private string _connectionString;
@@ -24,25 +24,25 @@ namespace MySql.Data.MySqlClient {
 				_connectionString = value;
 				if (string.IsNullOrEmpty(_connectionString)) return;
 				Match m = Regex.Match(_connectionString, @"Max\s*pool\s*size\s*=\s*(\d+)", RegexOptions.IgnoreCase);
-				if (m.Success) int.TryParse(m.Groups[1].Value, out MaxPoolSize);
-				else MaxPoolSize = 32;
-				if (MaxPoolSize <= 0) MaxPoolSize = 32;
-				var initConns = new SqlConnection2[MaxPoolSize];
-				for (var a = 0; a < MaxPoolSize; a++) initConns[a] = GetFreeConnection();
+				if (m.Success) int.TryParse(m.Groups[1].Value, out _poolsize);
+				else _poolsize = 50;
+				if (_poolsize <= 0) _poolsize = 50;
+				var initConns = new Connection2[_poolsize];
+				for (var a = 0; a < _poolsize; a++) initConns[a] = GetFreeConnection();
 				foreach (var conn in initConns) ReleaseConnection(conn);
 			}
 		}
 
-		public SqlConnection2 GetFreeConnection() {
-			SqlConnection2 conn = null;
+		public Connection2 GetFreeConnection() {
+			Connection2 conn = null;
 			if (FreeConnections.Count > 0)
 				lock (_lock)
 					if (FreeConnections.Count > 0)
 						conn = FreeConnections.Dequeue();
-			if (conn == null && AllConnections.Count < MaxPoolSize) {
+			if (conn == null && AllConnections.Count < _poolsize) {
 				lock (_lock)
-					if (AllConnections.Count < MaxPoolSize) {
-						conn = new SqlConnection2();
+					if (AllConnections.Count < _poolsize) {
+						conn = new Connection2();
 						AllConnections.Add(conn);
 					}
 				if (conn != null) {
@@ -52,7 +52,7 @@ namespace MySql.Data.MySqlClient {
 			}
 			return conn;
 		}
-		public SqlConnection2 GetConnection() {
+		public Connection2 GetConnection() {
 			if (string.IsNullOrEmpty(ConnectionString)) throw new Exception("ConnectionString 未设置");
 			var conn = GetFreeConnection();
 			if (conn == null) {
@@ -69,11 +69,11 @@ namespace MySql.Data.MySqlClient {
 			return conn;
 		}
 
-		async public Task<SqlConnection2> GetConnectionAsync() {
+		async public Task<Connection2> GetConnectionAsync() {
 			if (string.IsNullOrEmpty(ConnectionString)) throw new Exception("ConnectionString 未设置");
 			var conn = GetFreeConnection();
 			if (conn == null) {
-				TaskCompletionSource<SqlConnection2> tcs = new TaskCompletionSource<SqlConnection2>();
+				TaskCompletionSource<Connection2> tcs = new TaskCompletionSource<Connection2>();
 				lock (_lock_GetConnectionQueue)
 					GetConnectionAsyncQueue.Enqueue(tcs);
 				return await tcs.Task;
@@ -84,14 +84,14 @@ namespace MySql.Data.MySqlClient {
 			return conn;
 		}
 
-		public void ReleaseConnection(SqlConnection2 conn) {
+		public void ReleaseConnection(Connection2 conn) {
 			//try { conn.SqlConnection.Close(); } catch { }
 			lock (_lock)
 				FreeConnections.Enqueue(conn);
 
 			bool isAsync = false;
 			if (GetConnectionAsyncQueue.Count > 0) {
-				TaskCompletionSource<SqlConnection2> tcs = null;
+				TaskCompletionSource<Connection2> tcs = null;
 				lock (_lock_GetConnectionQueue)
 					if (GetConnectionAsyncQueue.Count > 0)
 						tcs = GetConnectionAsyncQueue.Dequeue();
@@ -107,7 +107,7 @@ namespace MySql.Data.MySqlClient {
 		}
 	}
 
-	public class SqlConnection2 {
+	public class Connection2 {
 		public MySqlConnection SqlConnection;
 		public DateTime LastActive;
 		public long UseSum;

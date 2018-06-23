@@ -1,25 +1,14 @@
-﻿using Microsoft.Extensions.Caching.Distributed;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
+﻿using Microsoft.Extensions.Logging;
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Data;
-using System.Linq;
-using System.Text;
-using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace MySql.Data.MySqlClient {
 	public partial class Executer : IDisposable {
 
 		public bool IsTracePerformance { get; set; } = string.Compare(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", true) == 0;
-		internal ILogger Log { get; set; }
+		public ILogger Log { get; set; }
 		public ConnectionPool Pool { get; } = new ConnectionPool();
-		public Executer() { }
 
 		void LoggerException(MySqlCommand cmd, Exception e, DateTime dt, string logtxt) {
 			if (IsTracePerformance) {
@@ -41,41 +30,6 @@ namespace MySql.Data.MySqlClient {
 			throw e;
 		}
 
-		public static string Addslashes(string filter, params object[] parms) {
-			if (filter == null || parms == null) return string.Empty;
-			if (parms.Length == 0) return filter;
-			object[] nparms = new object[parms.Length];
-			for (int a = 0; a < parms.Length; a++) {
-				if (parms[a] == null) nparms[a] = "NULL";
-				else {
-					decimal trydec;
-					if (parms[a] is bool || parms[a] is bool?)
-						nparms[a] = (bool)parms[a] ? 1 : 0;
-					else if (parms[a] is string)
-						nparms[a] = string.Concat("'", parms[a].ToString().Replace("'", "''"), "'");
-					else if (parms[a] is Enum)
-						nparms[a] = ((Enum)parms[a]).ToInt64();
-					else if (decimal.TryParse(string.Concat(parms[a]), out trydec))
-						nparms[a] = parms[a];
-					else if (parms[a] is DateTime) {
-						DateTime dt = (DateTime)parms[a];
-						nparms[a] = string.Concat("'", dt.ToString("yyyy-MM-dd HH:mm:ss"), "'");
-					} else if (parms[a] is DateTime?) {
-						DateTime? dt = parms[a] as DateTime?;
-						nparms[a] = string.Concat("'", dt.Value.ToString("yyyy-MM-dd HH:mm:ss"), "'");
-					} else if (parms[a] is IEnumerable) {
-						string sb = "";
-						var ie = parms[a] as IEnumerable;
-						foreach (var z in ie) sb += z == null ? string.Concat(",NULL") : string.Concat(",'", z.ToString().Replace("'", "''"), "'");
-						nparms[a] = string.IsNullOrEmpty(sb) ? sb : sb.Substring(1);
-					} else {
-						nparms[a] = string.Concat("'", parms[a].ToString().Replace("'", "''"), "'");
-						//if (parms[a] is string) nparms[a] = string.Concat('N', nparms[a]);
-					}
-				}
-			}
-			try { string ret = string.Format(filter, nparms); return ret; } catch { return filter; }
-		}
 		public void ExecuteReader(Action<MySqlDataReader> readerHander, CommandType cmdType, string cmdText, params MySqlParameter[] cmdParms) {
 			DateTime dt = DateTime.Now;
 			MySqlCommand cmd = new MySqlCommand();
@@ -127,7 +81,7 @@ namespace MySql.Data.MySqlClient {
 			}
 			LoggerException(cmd, ex, dt, logtxt);
 		}
-		public object[][] ExeucteArray(CommandType cmdType, string cmdText, params MySqlParameter[] cmdParms) {
+		public object[][] ExecuteArray(CommandType cmdType, string cmdText, params MySqlParameter[] cmdParms) {
 			List<object[]> ret = new List<object[]>();
 			ExecuteReader(dr => {
 				object[] values = new object[dr.FieldCount];
@@ -198,7 +152,7 @@ namespace MySql.Data.MySqlClient {
 				}
 			}
 
-			SqlConnection2 conn = null;
+			Connection2 conn = null;
 			MySqlTransaction tran = CurrentThreadTransaction;
 			if (IsTracePerformance) logtxt += $"	PrepareCommand_part1: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms cmdParms: {cmdParms.Length}\r\n";
 
@@ -222,160 +176,8 @@ namespace MySql.Data.MySqlClient {
 		}
 		
 		class PrepareCommandReturnInfo {
-			public SqlConnection2 Conn;
+			public Connection2 Conn;
 			public MySqlTransaction Tran;
 		}
-
-		#region 事务处理
-
-		class SqlTransaction2 {
-			internal SqlConnection2 Conn;
-			internal MySqlTransaction Transaction;
-			internal DateTime RunTime;
-			internal TimeSpan Timeout;
-
-			public SqlTransaction2(SqlConnection2 conn, MySqlTransaction tran, TimeSpan timeout) {
-				Conn = conn;
-				Transaction = tran;
-				RunTime = DateTime.Now;
-				Timeout = timeout;
-			}
-		}
-
-		private Dictionary<int, SqlTransaction2> _trans = new Dictionary<int, SqlTransaction2>();
-		private object _trans_lock = new object();
-
-		public MySqlTransaction CurrentThreadTransaction => _trans.TryGetValue(Thread.CurrentThread.ManagedThreadId, out var conn) && conn.Transaction?.Connection != null ? conn.Transaction : null;
-
-		private Dictionary<int, List<string>> _preRemoveKeys = new Dictionary<int, List<string>>();
-		private object _preRemoveKeys_lock = new object();
-		public string[] PreRemove(params string[] key) {
-			var tid = Thread.CurrentThread.ManagedThreadId;
-			List<string> keys = null;
-			if (key == null || key.Any() == false) return _preRemoveKeys.TryGetValue(tid, out keys) ? keys.ToArray() : new string[0];
-			Log.LogDebug($"线程{tid}事务预删除Redis {Newtonsoft.Json.JsonConvert.SerializeObject(key)}");
-			if (_preRemoveKeys.TryGetValue(tid, out keys) == false)
-				lock (_preRemoveKeys_lock)
-					if (_preRemoveKeys.TryGetValue(tid, out keys) == false) {
-						_preRemoveKeys.Add(tid, keys = new List<string>(key));
-						return key;
-					}
-			keys.AddRange(key);
-			return keys.ToArray();
-		}
-
-		/// <summary>
-		/// 启动事务
-		/// </summary>
-		public void BeginTransaction() {
-			BeginTransaction(TimeSpan.FromSeconds(10));
-		}
-		public void BeginTransaction(TimeSpan timeout) {
-			int tid = Thread.CurrentThread.ManagedThreadId;
-			var conn = this.Pool.GetConnection();
-			SqlTransaction2 tran = null;
-
-			try {
-				if (conn.SqlConnection.Ping() == false) conn.SqlConnection.Open();
-				tran = new SqlTransaction2(conn, conn.SqlConnection.BeginTransaction(), timeout);
-			}catch(Exception ex) {
-				Log.LogError($"数据库出错（开启事务）{ex.Message} \r\n{ex.StackTrace}");
-				throw ex;
-			}
-			if (_trans.ContainsKey(tid)) CommitTransaction();
-
-			lock (_trans_lock)
-				_trans.Add(tid, tran);
-		}
-
-		/// <summary>
-		/// 自动提交事务
-		/// </summary>
-		private void AutoCommitTransaction() {
-			if (_trans.Count > 0) {
-				SqlTransaction2[] trans = null;
-				lock (_trans_lock)
-					trans = _trans.Values.Where(st2 => DateTime.Now.Subtract(st2.RunTime) > st2.Timeout).ToArray();
-				foreach (SqlTransaction2 tran in trans) CommitTransaction(true, tran);
-			}
-		}
-		private void CommitTransaction(bool isCommit, SqlTransaction2 tran) {
-			if (tran == null || tran.Transaction == null || tran.Transaction.Connection == null) return;
-
-			if (_trans.ContainsKey(tran.Conn.ThreadId))
-				lock (_trans_lock)
-					if (_trans.ContainsKey(tran.Conn.ThreadId))
-						_trans.Remove(tran.Conn.ThreadId);
-
-			var removeKeys = PreRemove().Distinct().ToArray();
-			if (_preRemoveKeys.ContainsKey(tran.Conn.ThreadId))
-				lock (_preRemoveKeys_lock)
-					if (_preRemoveKeys.ContainsKey(tran.Conn.ThreadId))
-						_preRemoveKeys.Remove(tran.Conn.ThreadId);
-
-			var f001 = isCommit ? "提交" : "回滚";
-			try {
-				Log.LogDebug($"线程{tran.Conn.ThreadId}事务{f001}，批量删除Redis {Newtonsoft.Json.JsonConvert.SerializeObject(removeKeys)}");
-				SqlHelper.CacheRemove(removeKeys);
-				if (isCommit) tran.Transaction.Commit();
-				else tran.Transaction.Rollback();
-			} catch (Exception ex) {
-				Log.LogError($"数据库出错（{f001}事务）：{ex.Message} {ex.StackTrace}");
-			} finally {
-				this.Pool.ReleaseConnection(tran.Conn);
-			}
-		}
-		private void CommitTransaction(bool isCommit) {
-			if (_trans.TryGetValue(Thread.CurrentThread.ManagedThreadId, out var tran)) CommitTransaction(isCommit, tran);
-		}
-		/// <summary>
-		/// 提交事务
-		/// </summary>
-		public void CommitTransaction() => CommitTransaction(true);
-		/// <summary>
-		/// 回滚事务
-		/// </summary>
-		public void RollbackTransaction() => CommitTransaction(false);
-
-		public void Dispose() {
-			SqlTransaction2[] trans = null;
-			lock (_trans_lock)
-				trans = _trans.Values.ToArray();
-			foreach (SqlTransaction2 tran in trans) CommitTransaction(false, tran);
-		}
-		#endregion
-	}
-
-	public static partial class ExtensionMethods {
-		public static object GetEnum<T>(this IDataReader dr, int index) {
-			string value = dr.GetString(index);
-			Type t = typeof(T);
-			foreach (var f in t.GetFields())
-				if (f.GetCustomAttribute<DescriptionAttribute>()?.Description == value || f.Name == value) return Enum.Parse(t, f.Name);
-			return null;
-		}
-	}
-}
-
-public static partial class MySql_Data_MySqlClient_ExtensionMethods {
-	public static string ToDescriptionOrString(this Enum item) {
-		string name = item.ToString();
-		DescriptionAttribute desc = item.GetType().GetField(name)?.GetCustomAttribute<DescriptionAttribute>();
-		return desc?.Description ?? name;
-	}
-	public static long ToInt64(this Enum item) {
-		return Convert.ToInt64(item);
-	}
-	public static IEnumerable<T> ToSet<T>(this long value) {
-		List<T> ret = new List<T>();
-		if (value == 0) return ret;
-		Type t = typeof(T);
-		foreach (FieldInfo f in t.GetFields()) {
-			if (f.FieldType != t) continue;
-			object o = Enum.Parse(t, f.Name);
-			long v = (long)o;
-			if ((value & v) == v) ret.Add((T)o);
-		}
-		return ret;
 	}
 }
