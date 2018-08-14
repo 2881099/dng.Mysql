@@ -36,7 +36,7 @@ namespace MySql.Data.MySqlClient {
 						dataIndex = read2.dataIndex;
 						PropertyInfo prop = type.GetProperty(objNames[b]);
 						if (prop == null) throw new Exception(string.Concat(type.FullName, " 没有定义属性 ", objNames[b]));
-						if (obj == null) prop.SetValue(info, obj, null);
+						if (obj != null) prop.SetValue(info, obj, null);
 						if (cacheList != null) cacheList.Add(obj?.GetType().GetMethod("Stringify").Invoke(obj, null));
 					}
 				}, CommandType.Text, sql);
