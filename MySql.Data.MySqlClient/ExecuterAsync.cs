@@ -58,7 +58,7 @@ namespace MySql.Data.MySqlClient {
 			List<object[]> ret = new List<object[]>();
 			await ExecuteReaderAsync(async dr => {
 				object[] values = new object[dr.FieldCount];
-				for (int a = 0; a < values.Length; a++) values[a] = await dr.GetFieldValueAsync<object>(a);
+				for (int a = 0; a < values.Length; a++) if (!await dr.IsDBNullAsync(a)) values[a] = await dr.GetFieldValueAsync<object>(a);
 				ret.Add(values);
 			}, cmdType, cmdText, cmdParms);
 			return ret.ToArray();
