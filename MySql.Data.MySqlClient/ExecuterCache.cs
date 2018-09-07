@@ -11,10 +11,17 @@ namespace MySql.Data.MySqlClient {
 
 		public IDistributedCache Cache { get; private set; }
 		private bool CacheSupportMultiRemove = false;
-		public Executer(IDistributedCache cache, string connectionString, ILogger log) {
+		public Executer(IDistributedCache cache, string masterConnectionString, string[] slaveConnectionStrings, ILogger log) {
 			Log = log;
-			Pool.ConnectionString = connectionString;
+			MasterPool.ConnectionString = masterConnectionString;
 			Cache = cache;
+			if (slaveConnectionStrings != null) {
+				foreach(var slaveConnectionString in slaveConnectionStrings) {
+					var slavePool = new ConnectionPool();
+					slavePool.ConnectionString = slaveConnectionString;
+					SlavePools.Add(slavePool);
+				}
+			}
 			if (cache != null) {
 				var key1 = $"testCacheSupportMultiRemove{Guid.NewGuid().ToString("N")}";
 				var key2 = $"testCacheSupportMultiRemove{Guid.NewGuid().ToString("N")}";

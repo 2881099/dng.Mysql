@@ -61,7 +61,7 @@ namespace MySql.Data.MySqlClient {
 			string where = string.IsNullOrEmpty(_where) ? string.Empty : string.Concat(" \r\nWHERE ", _where.Substring(5));
 			string having = string.IsNullOrEmpty(_groupby) ||
 							string.IsNullOrEmpty(_having) ? string.Empty : string.Concat(" \r\nHAVING ", _having.Substring(5));
-			string sql = string.Concat("SELECT ", fields, _table, _join, where, _groupby, having, _sort, limit);
+			string sql = string.Concat(_select, fields, _table, _join, where, _groupby, having, _orderby, limit);
 
 			List<T> ret = new List<T>();
 			Type type = typeof(T);

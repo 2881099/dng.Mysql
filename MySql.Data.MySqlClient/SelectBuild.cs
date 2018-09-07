@@ -26,6 +26,11 @@ namespace MySql.Data.MySqlClient {
 			values.CopyTo(parms, 0);
 			return base.Where(filter.Substring(4), parms) as TLinket;
 		}
+		/// <summary>
+		/// 若使用读写分离，默认查询【从库】，使用本方法明确查询【主库】
+		/// </summary>
+		/// <returns></returns>
+		public new TLinket Master() => base.Master() as TLinket;
 		public new TLinket Count(out long count) => base.Count(out count) as TLinket;
 		public new TLinket Where(string filter, params object[] parms) => base.Where(true, filter, parms) as TLinket;
 		public new TLinket Where(bool isadd, string filter, params object[] parms) => base.Where(isadd, filter, parms) as TLinket;
@@ -49,7 +54,7 @@ namespace MySql.Data.MySqlClient {
 	}
 	public partial class SelectBuild<TReturnInfo> {
 		protected int _limit, _skip;
-		protected string _sort, _field, _table, _join, _where, _groupby, _having;
+		protected string _select = "SELECT ", _orderby, _field, _table, _join, _where, _groupby, _having;
 		protected List<IDAL> _dals = new List<IDAL>();
 		protected Executer _exec;
 		public List<TReturnInfo> ToList(int expireSeconds, string cacheKey = null) {
@@ -115,10 +120,10 @@ namespace MySql.Data.MySqlClient {
 		}
 		public override string ToString() => this.ToString(null);
 		public string ToString(string field) {
-			if (string.IsNullOrEmpty(_sort) && _skip > 0) this.Sort(_dals[0].Sort);
+			if (string.IsNullOrEmpty(_orderby) && _skip > 0) this.Sort(_dals[0].Sort);
 			string limit = _skip > 0 || _limit > 0 ? string.Format(" \r\nlimit {0},{1}", Math.Max(0, _skip), _limit > 0 ? _limit : -1) : string.Empty;
 			string where = string.IsNullOrEmpty(_where) ? string.Empty : string.Concat(" \r\nWHERE ", _where.Substring(5));
-			string sql = string.Concat("SELECT ", field ?? _field, _table, _join, where, _sort, limit);
+			string sql = string.Concat(_select, field ?? _field, _table, _join, where, _orderby, limit);
 			return sql;
 		}
 		/// <summary>
@@ -132,7 +137,7 @@ namespace MySql.Data.MySqlClient {
 			string where = string.IsNullOrEmpty(_where) ? string.Empty : string.Concat(" \r\nWHERE ", _where.Substring(5));
 			string having = string.IsNullOrEmpty(_groupby) ||
 							string.IsNullOrEmpty(_having) ? string.Empty : string.Concat(" \r\nHAVING ", _having.Substring(5));
-			string sql = string.Concat("SELECT ", fields, _table, _join, where, _groupby, having, _sort, limit);
+			string sql = string.Concat(_select, fields, _table, _join, where, _groupby, having, _orderby, limit);
 
 			List<T> ret = new List<T>();
 			Type type = typeof(T);
@@ -162,6 +167,10 @@ namespace MySql.Data.MySqlClient {
 				return constructor.Invoke(parms);
 			}
 			return dr.IsDBNull(++dataIndex) ? null : dr.GetValue(dataIndex);
+		}
+		protected SelectBuild<TReturnInfo> Master() {
+			_select = " SELECT "; // ExecuteReader 内会判断 StartsWith("SELECT ")，才使用从库查询
+			return this;
 		}
 		public long Count() {
 			return this.AggregateScalar<long>("count(1)");
@@ -243,7 +252,7 @@ namespace MySql.Data.MySqlClient {
 			return this;
 		}
 		protected SelectBuild<TReturnInfo> Sort(string sort) {
-			if (!string.IsNullOrEmpty(sort)) _sort = string.Concat(" \r\nORDER BY ", sort);
+			if (!string.IsNullOrEmpty(sort)) _orderby = string.Concat(" \r\nORDER BY ", sort);
 			return this;
 		}
 		protected SelectBuild<TReturnInfo> OrderBy(string sort) {

@@ -5,11 +5,25 @@ using System.Threading.Tasks;
 
 namespace MySql.Data.MySqlClient {
 	partial class Executer {
+
+		/// <summary>
+		/// 若使用【读写分离】，查询【从库】条件cmdText.StartsWith("SELECT ")，否则查询【主库】
+		/// </summary>
+		/// <param name="readerHander"></param>
+		/// <param name="cmdType"></param>
+		/// <param name="cmdText"></param>
+		/// <param name="cmdParms"></param>
+		/// <returns></returns>
 		async public Task ExecuteReaderAsync(Func<MySqlDataReader, Task> readerHander, CommandType cmdType, string cmdText, params MySqlParameter[] cmdParms) {
 			DateTime dt = DateTime.Now;
 			MySqlCommand cmd = new MySqlCommand();
 			DateTime logtxt_dt = DateTime.Now;
-			var pc = await PrepareCommandAsync(cmd, cmdType, cmdText, cmdParms);
+			ConnectionPool pool = this.MasterPool;
+			//读写分离规则，暂时定为：所有查询的同步方法会读主库，所有查询的异步方法会读从库
+			//if (this.SlavePools.Count > 0 && this.CurrentThreadTransaction == null) pool = this.SlavePools.Count == 1 ? this.SlavePools[0] : this.SlavePools[slaveRandom.Next(this.SlavePools.Count)];
+			if (this.SlavePools.Count > 0 && cmdText.StartsWith("SELECT ", StringComparison.CurrentCultureIgnoreCase)) pool = this.SlavePools.Count == 1 ? this.SlavePools[0] : this.SlavePools[slaveRandom.Next(this.SlavePools.Count)];
+
+			var pc = await PrepareCommandAsync(pool, cmd, cmdType, cmdText, cmdParms);
 			string logtxt = pc.logtxt;
 			if (IsTracePerformance) logtxt += $"PrepareCommand: {DateTime.Now.Subtract(logtxt_dt).TotalMilliseconds}ms Total: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms\r\n";
 			Exception ex = null;
@@ -50,10 +64,17 @@ namespace MySql.Data.MySqlClient {
 			}
 
 			if (IsTracePerformance) logtxt_dt = DateTime.Now;
-			Pool.ReleaseConnection(pc.conn);
+			pool.ReleaseConnection(pc.conn);
 			if (IsTracePerformance) logtxt += $"ReleaseConnection: {DateTime.Now.Subtract(logtxt_dt).TotalMilliseconds}ms Total: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms";
-			LoggerException(cmd, ex, dt, logtxt);
+			LoggerException(pool, cmd, ex, dt, logtxt);
 		}
+		/// <summary>
+		/// 若使用【读写分离】，查询【从库】条件cmdText.StartsWith("SELECT ")，否则查询【主库】
+		/// </summary>
+		/// <param name="cmdType"></param>
+		/// <param name="cmdText"></param>
+		/// <param name="cmdParms"></param>
+		/// <returns></returns>
 		async public Task<object[][]> ExecuteArrayAsync(CommandType cmdType, string cmdText, params MySqlParameter[] cmdParms) {
 			List<object[]> ret = new List<object[]>();
 			await ExecuteReaderAsync(async dr => {
@@ -63,10 +84,17 @@ namespace MySql.Data.MySqlClient {
 			}, cmdType, cmdText, cmdParms);
 			return ret.ToArray();
 		}
+		/// <summary>
+		/// 在【主库】执行
+		/// </summary>
+		/// <param name="cmdType"></param>
+		/// <param name="cmdText"></param>
+		/// <param name="cmdParms"></param>
+		/// <returns></returns>
 		async public Task<int> ExecuteNonQueryAsync(CommandType cmdType, string cmdText, params MySqlParameter[] cmdParms) {
 			DateTime dt = DateTime.Now;
 			MySqlCommand cmd = new MySqlCommand();
-			var pc = await PrepareCommandAsync(cmd, cmdType, cmdText, cmdParms);
+			var pc = await PrepareCommandAsync(this.MasterPool, cmd, cmdType, cmdText, cmdParms);
 			DateTime logtxt_dt = DateTime.Now;
 			int val = 0;
 			Exception ex = null;
@@ -78,16 +106,23 @@ namespace MySql.Data.MySqlClient {
 			}
 
 			if (IsTracePerformance) logtxt_dt = DateTime.Now;
-			Pool.ReleaseConnection(pc.conn);
+			this.MasterPool.ReleaseConnection(pc.conn);
 			if (IsTracePerformance) pc.logtxt += $"ReleaseConnection: {DateTime.Now.Subtract(logtxt_dt).TotalMilliseconds}ms Total: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms";
-			LoggerException(cmd, ex, dt, pc.logtxt);
+			LoggerException(this.MasterPool, cmd, ex, dt, pc.logtxt);
 			cmd.Parameters.Clear();
 			return val;
 		}
+		/// <summary>
+		/// 在【主库】执行
+		/// </summary>
+		/// <param name="cmdType"></param>
+		/// <param name="cmdText"></param>
+		/// <param name="cmdParms"></param>
+		/// <returns></returns>
 		async public Task<object> ExecuteScalarAsync(CommandType cmdType, string cmdText, params MySqlParameter[] cmdParms) {
 			DateTime dt = DateTime.Now;
 			MySqlCommand cmd = new MySqlCommand();
-			var pc = await PrepareCommandAsync(cmd, cmdType, cmdText, cmdParms);
+			var pc = await PrepareCommandAsync(this.MasterPool, cmd, cmdType, cmdText, cmdParms);
 			DateTime logtxt_dt = DateTime.Now;
 			object val = null;
 			Exception ex = null;
@@ -99,14 +134,14 @@ namespace MySql.Data.MySqlClient {
 			}
 
 			if (IsTracePerformance) logtxt_dt = DateTime.Now;
-			Pool.ReleaseConnection(pc.conn);
+			this.MasterPool.ReleaseConnection(pc.conn);
 			if (IsTracePerformance) pc.logtxt += $"ReleaseConnection: {DateTime.Now.Subtract(logtxt_dt).TotalMilliseconds}ms Total: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms";
-			LoggerException(cmd, ex, dt, pc.logtxt);
+			LoggerException(this.MasterPool, cmd, ex, dt, pc.logtxt);
 			cmd.Parameters.Clear();
 			return val;
 		}
 
-		async private Task<(Connection2 conn, string logtxt)> PrepareCommandAsync(MySqlCommand cmd, CommandType cmdType, string cmdText, MySqlParameter[] cmdParms) {
+		async private Task<(Connection2 conn, string logtxt)> PrepareCommandAsync(ConnectionPool pool, MySqlCommand cmd, CommandType cmdType, string cmdText, MySqlParameter[] cmdParms) {
 			string logtxt = "";
 			DateTime dt = DateTime.Now;
 			cmd.CommandType = cmdType;
@@ -124,7 +159,7 @@ namespace MySql.Data.MySqlClient {
 			if (IsTracePerformance) logtxt += $"	PrepareCommand_part1: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms cmdParms: {cmdParms.Length}\r\n";
 
 			if (IsTracePerformance) dt = DateTime.Now;
-			conn = await Pool.GetConnectionAsync();
+			conn = await pool.GetConnectionAsync();
 			cmd.Connection = conn.SqlConnection;
 			if (IsTracePerformance) logtxt += $"	PrepareCommand_tran==null: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms\r\n";
 
