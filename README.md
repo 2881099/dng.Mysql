@@ -49,11 +49,13 @@ MysqlInstance.RemoveCache(key);
 
 以下方法执行 sql 语句，为 select 开头，则默认查从数据库，反之则查主数据库。
 
+```csharp
 MysqlInstance.ExecuteReader
 MysqlInstance.ExecuteReaderAsync
 
 MysqlInstance.ExecuteArray
 MysqlInstance.ExecuteArrayAsync
+```
 
 以下方法在主数据库执行：
 
