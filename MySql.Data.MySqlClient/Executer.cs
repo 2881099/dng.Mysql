@@ -2,18 +2,23 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
+using System.Threading;
 
 namespace MySql.Data.MySqlClient {
 	public partial class Executer : IDisposable {
 
 		public bool IsTracePerformance { get; set; } = string.Compare(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", true) == 0;
+		public int SlaveCheckAvailableInterval = 5;
 		public ILogger Log { get; set; }
 		public ConnectionPool MasterPool { get; } = new ConnectionPool();
 		public List<ConnectionPool> SlavePools { get; } = new List<ConnectionPool>();
+		private int slaveUnavailables = 0;
+		private object slaveLock = new object();
 		private Random slaveRandom = new Random();
 
 		void LoggerException(ConnectionPool pool, MySqlCommand cmd, Exception e, DateTime dt, string logtxt) {
-			var logPool = this.SlavePools.Count == 0 ? "" : (pool == this.MasterPool ? "【主库】" : $"【从库{this.SlavePools.IndexOf(pool)}】");
+			var logPool = this.SlavePools.Any() == false ? "" : (pool == this.MasterPool ? "【主库】" : $"【从库{this.SlavePools.IndexOf(pool)}】");
 			if (IsTracePerformance) {
 				TimeSpan ts = DateTime.Now.Subtract(dt);
 				if (e == null && ts.TotalMilliseconds > 100)
@@ -33,6 +38,28 @@ namespace MySql.Data.MySqlClient {
 			throw e;
 		}
 
+		void CheckPoolAvailable(ConnectionPool pool, int interval) {
+			new Thread(() => {
+				while (pool.IsAvailable == false) {
+					Thread.CurrentThread.Join(TimeSpan.FromSeconds(interval));
+					try {
+						var conn = pool.GetConnection();
+						if (conn.SqlConnection.State == ConnectionState.Closed || conn.SqlConnection.Ping() == false) conn.SqlConnection.Open();
+						pool.ReleaseConnection(conn);
+						break;
+					} catch { }
+				}
+				if (pool.IsAvailable == false) {
+					lock (slaveLock) {
+						if (pool.IsAvailable == false) {
+							slaveUnavailables--;
+							pool.IsAvailable = true;
+						}
+					}
+				}
+			}).Start();
+		}
+
 		/// <summary>
 		/// 若使用【读写分离】，查询【从库】条件cmdText.StartsWith("SELECT ")，否则查询【主库】
 		/// </summary>
@@ -46,16 +73,63 @@ namespace MySql.Data.MySqlClient {
 			string logtxt = "";
 			DateTime logtxt_dt = DateTime.Now;
 			ConnectionPool pool = this.MasterPool;
-			//读写分离规则，暂时定为：所有查询的同步方法会读主库，所有查询的异步方法会读从库
-			//if (this.SlavePools.Count > 0 && this.CurrentThreadTransaction == null) pool = this.SlavePools.Count == 1 ? this.SlavePools[0] : this.SlavePools[slaveRandom.Next(this.SlavePools.Count)];
-			if (this.SlavePools.Count > 0 && cmdText.StartsWith("SELECT ", StringComparison.CurrentCultureIgnoreCase)) pool = this.SlavePools.Count == 1 ? this.SlavePools[0] : this.SlavePools[slaveRandom.Next(this.SlavePools.Count)];
+			bool isSlave = false;
+
+			//读写分离规则
+			if (this.SlavePools.Any() && cmdText.StartsWith("SELECT ", StringComparison.CurrentCultureIgnoreCase)) {
+				var availables = slaveUnavailables == 0 ?
+					//查从库
+					this.SlavePools : (
+					//查主库
+					slaveUnavailables == this.SlavePools.Count ? new List<ConnectionPool>() :
+					//查从库可用
+					this.SlavePools.Where(sp => sp.IsAvailable).ToList());
+				if (availables.Any()) {
+					isSlave = true;
+					pool = availables.Count == 1 ? this.SlavePools[0] : availables[slaveRandom.Next(availables.Count)];
+				}
+			}
 
 			var pc = PrepareCommand(pool, cmd, cmdType, cmdText, cmdParms, ref logtxt);
 			if (IsTracePerformance) logtxt += $"PrepareCommand: {DateTime.Now.Subtract(logtxt_dt).TotalMilliseconds}ms Total: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms\r\n";
 			Exception ex = null;
 			try {
 				if (IsTracePerformance) logtxt_dt = DateTime.Now;
-				if (cmd.Connection.State == ConnectionState.Closed || cmd.Connection.Ping() == false) cmd.Connection.Open();
+				if (isSlave) {
+					//从库查询切换，恢复
+					bool isSlaveFail = false;
+					try {
+						if (cmd.Connection.State == ConnectionState.Closed || cmd.Connection.Ping() == false) cmd.Connection.Open();
+					} catch {
+						isSlaveFail = true;
+					}
+					if (isSlaveFail) {
+						if (pc.tran == null) {
+							if (IsTracePerformance) logtxt_dt = DateTime.Now;
+							pool.ReleaseConnection(pc.conn);
+							if (IsTracePerformance) logtxt += $"ReleaseConnection: {DateTime.Now.Subtract(logtxt_dt).TotalMilliseconds}ms Total: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms";
+						}
+						LoggerException(pool, cmd, new Exception("连接失败，准备切换其他可用服务器，并启动定时恢复机制"), dt, logtxt);
+
+						bool isCheckAvailable = false;
+						if (pool.IsAvailable) {
+							lock (slaveLock) {
+								if (pool.IsAvailable) {
+									slaveUnavailables++;
+									pool.IsAvailable = false;
+									isCheckAvailable = true;
+								}
+							}
+						}
+
+						if (isCheckAvailable) CheckPoolAvailable(pool, SlaveCheckAvailableInterval); //间隔多少秒检查服务器可用性
+						ExecuteReader(readerHander, cmdType, cmdText, cmdParms);
+						return;
+					}
+				} else {
+					//主库查询
+					if (cmd.Connection.State == ConnectionState.Closed || cmd.Connection.Ping() == false) cmd.Connection.Open();
+				}
 				if (IsTracePerformance) {
 					logtxt += $"Open: {DateTime.Now.Subtract(logtxt_dt).TotalMilliseconds}ms Total: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms\r\n";
 					logtxt_dt = DateTime.Now;
@@ -89,9 +163,9 @@ namespace MySql.Data.MySqlClient {
 				ex = ex2;
 			}
 
-			if (pc.Tran == null) {
+			if (pc.tran == null) {
 				if (IsTracePerformance) logtxt_dt = DateTime.Now;
-				pool.ReleaseConnection(pc.Conn);
+				pool.ReleaseConnection(pc.conn);
 				if (IsTracePerformance) logtxt += $"ReleaseConnection: {DateTime.Now.Subtract(logtxt_dt).TotalMilliseconds}ms Total: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms";
 			}
 			LoggerException(pool, cmd, ex, dt, logtxt);
@@ -134,9 +208,9 @@ namespace MySql.Data.MySqlClient {
 				ex = ex2;
 			}
 
-			if (pc.Tran == null) {
+			if (pc.tran == null) {
 				if (IsTracePerformance) logtxt_dt = DateTime.Now;
-				this.MasterPool.ReleaseConnection(pc.Conn);
+				this.MasterPool.ReleaseConnection(pc.conn);
 				if (IsTracePerformance) logtxt += $"ReleaseConnection: {DateTime.Now.Subtract(logtxt_dt).TotalMilliseconds}ms Total: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms";
 			}
 			LoggerException(this.MasterPool, cmd, ex, dt, logtxt);
@@ -165,9 +239,9 @@ namespace MySql.Data.MySqlClient {
 				ex = ex2;
 			}
 
-			if (pc.Tran == null) {
+			if (pc.tran == null) {
 				if (IsTracePerformance) logtxt_dt = DateTime.Now;
-				this.MasterPool.ReleaseConnection(pc.Conn);
+				this.MasterPool.ReleaseConnection(pc.conn);
 				if (IsTracePerformance) logtxt += $"ReleaseConnection: {DateTime.Now.Subtract(logtxt_dt).TotalMilliseconds}ms Total: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms";
 			}
 			LoggerException(this.MasterPool, cmd, ex, dt, logtxt);
@@ -175,7 +249,7 @@ namespace MySql.Data.MySqlClient {
 			return val;
 		}
 
-		private PrepareCommandReturnInfo PrepareCommand(ConnectionPool pool, MySqlCommand cmd, CommandType cmdType, string cmdText, MySqlParameter[] cmdParms, ref string logtxt) {
+		private (Connection2 conn, MySqlTransaction tran) PrepareCommand(ConnectionPool pool, MySqlCommand cmd, CommandType cmdType, string cmdText, MySqlParameter[] cmdParms, ref string logtxt) {
 			DateTime dt = DateTime.Now;
 			cmd.CommandType = cmdType;
 			cmd.CommandText = cmdText;
@@ -208,12 +282,7 @@ namespace MySql.Data.MySqlClient {
 			AutoCommitTransaction();
 			if (IsTracePerformance) logtxt += $"	AutoCommitTransaction: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms\r\n";
 
-			return new PrepareCommandReturnInfo { Conn = conn, Tran = tran };
-		}
-		
-		class PrepareCommandReturnInfo {
-			public Connection2 Conn;
-			public MySqlTransaction Tran;
+			return (conn, tran);
 		}
 	}
 }

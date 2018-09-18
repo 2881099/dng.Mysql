@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace MySql.Data.MySqlClient {
@@ -19,9 +21,22 @@ namespace MySql.Data.MySqlClient {
 			MySqlCommand cmd = new MySqlCommand();
 			DateTime logtxt_dt = DateTime.Now;
 			ConnectionPool pool = this.MasterPool;
-			//读写分离规则，暂时定为：所有查询的同步方法会读主库，所有查询的异步方法会读从库
-			//if (this.SlavePools.Count > 0 && this.CurrentThreadTransaction == null) pool = this.SlavePools.Count == 1 ? this.SlavePools[0] : this.SlavePools[slaveRandom.Next(this.SlavePools.Count)];
-			if (this.SlavePools.Count > 0 && cmdText.StartsWith("SELECT ", StringComparison.CurrentCultureIgnoreCase)) pool = this.SlavePools.Count == 1 ? this.SlavePools[0] : this.SlavePools[slaveRandom.Next(this.SlavePools.Count)];
+			bool isSlave = false;
+
+			//读写分离规则
+			if (this.SlavePools.Any() && cmdText.StartsWith("SELECT ", StringComparison.CurrentCultureIgnoreCase)) {
+				var availables = slaveUnavailables == 0 ?
+					//查从库
+					this.SlavePools : (
+					//查主库
+					slaveUnavailables == this.SlavePools.Count ? new List<ConnectionPool>() :
+					//查从库可用
+					this.SlavePools.Where(sp => sp.IsAvailable).ToList());
+				if (availables.Any()) {
+					isSlave = true;
+					pool = availables.Count == 1 ? this.SlavePools[0] : availables[slaveRandom.Next(availables.Count)];
+				}
+			}
 
 			var pc = await PrepareCommandAsync(pool, cmd, cmdType, cmdText, cmdParms);
 			string logtxt = pc.logtxt;
@@ -29,7 +44,39 @@ namespace MySql.Data.MySqlClient {
 			Exception ex = null;
 			try {
 				if (IsTracePerformance) logtxt_dt = DateTime.Now;
-				if (cmd.Connection.State == ConnectionState.Closed || cmd.Connection.Ping() == false) await cmd.Connection.OpenAsync();
+				if (isSlave) {
+					//从库查询切换，恢复
+					bool isSlaveFail = false;
+					try {
+						if (cmd.Connection.State == ConnectionState.Closed || cmd.Connection.Ping() == false) cmd.Connection.Open();
+					} catch {
+						isSlaveFail = true;
+					}
+					if (isSlaveFail) {
+						if (IsTracePerformance) logtxt_dt = DateTime.Now;
+						pool.ReleaseConnection(pc.conn);
+						if (IsTracePerformance) logtxt += $"ReleaseConnection: {DateTime.Now.Subtract(logtxt_dt).TotalMilliseconds}ms Total: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms";
+						LoggerException(pool, cmd, new Exception("连接失败，准备切换其他可用服务器，并启动定时恢复机制"), dt, logtxt);
+
+						bool isCheckAvailable = false;
+						if (pool.IsAvailable) {
+							lock (slaveLock) {
+								if (pool.IsAvailable) {
+									slaveUnavailables++;
+									pool.IsAvailable = false;
+									isCheckAvailable = true;
+								}
+							}
+						}
+
+						if (isCheckAvailable) CheckPoolAvailable(pool, 5); //间隔5秒检查服务器可用性
+						await ExecuteReaderAsync(readerHander, cmdType, cmdText, cmdParms);
+						return;
+					}
+				} else {
+					//主库查询
+					if (cmd.Connection.State == ConnectionState.Closed || cmd.Connection.Ping() == false) cmd.Connection.Open();
+				}
 				if (IsTracePerformance) {
 					logtxt += $"Open: {DateTime.Now.Subtract(logtxt_dt).TotalMilliseconds}ms Total: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms\r\n";
 					logtxt_dt = DateTime.Now;
