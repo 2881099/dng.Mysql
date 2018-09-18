@@ -4,12 +4,12 @@
     <AssemblyName>dng.Mysql</AssemblyName>
     <PackageId>dng.Mysql</PackageId>
     <RootNamespace>dng.Mysql</RootNamespace>
-    <Version>1.1.10</Version>
+    <Version>1.1.11</Version>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageProjectUrl>https://github.com/2881099/dng.Mysql</PackageProjectUrl>
     <Description>dotnetgen_mysql生成器所需mysql数据库基础封装</Description>
     <RepositoryUrl>https://github.com/2881099/dng.Mysql</RepositoryUrl>
-    <PackageTags>dotnetgen dotnet mysql mariadb 三层 生成器</PackageTags>
+    <PackageTags>dotnetgen dotnet mysql mariadb 读写分离 三层 生成器</PackageTags>
     <WarningLevel>3</WarningLevel>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
