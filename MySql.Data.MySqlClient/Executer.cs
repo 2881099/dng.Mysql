@@ -17,7 +17,7 @@ namespace MySql.Data.MySqlClient {
 		private object slaveLock = new object();
 		private Random slaveRandom = new Random();
 
-		void LoggerException(ConnectionPool pool, MySqlCommand cmd, Exception e, DateTime dt, string logtxt) {
+		void LoggerException(ConnectionPool pool, MySqlCommand cmd, Exception e, DateTime dt, string logtxt, bool isThrowException = true) {
 			var logPool = this.SlavePools.Any() == false ? "" : (pool == this.MasterPool ? "【主库】" : $"【从库{this.SlavePools.IndexOf(pool)}】");
 			if (IsTracePerformance) {
 				TimeSpan ts = DateTime.Now.Subtract(dt);
@@ -35,28 +35,40 @@ namespace MySql.Data.MySqlClient {
 
 			RollbackTransaction();
 			cmd.Parameters.Clear();
-			throw e;
+			if (isThrowException) throw e;
 		}
 
 		void CheckPoolAvailable(ConnectionPool pool, int interval) {
 			new Thread(() => {
+				var slavePoolIndex = this.SlavePools.IndexOf(pool);
+				if (pool.IsAvailable == false) Log.LogError($"【从库{slavePoolIndex}】恢复检查时间：{DateTime.Now.AddSeconds(interval)}");
 				while (pool.IsAvailable == false) {
 					Thread.CurrentThread.Join(TimeSpan.FromSeconds(interval));
 					try {
 						var conn = pool.GetConnection();
-						if (conn.SqlConnection.State == ConnectionState.Closed || conn.SqlConnection.Ping() == false) conn.SqlConnection.Open();
-						pool.ReleaseConnection(conn);
-						break;
-					} catch { }
+						try {
+							if (conn.SqlConnection.State == ConnectionState.Closed || conn.SqlConnection.Ping() == false) conn.SqlConnection.Open();
+							//if (slaveRandom.Next(100) % 2 == 0) throw new Exception("测试CheckPoolAvailable抛出异常");
+							break;
+						} finally {
+							pool.ReleaseConnection(conn);
+						}
+					} catch(Exception ex) {
+						Log.LogError($"【从库{slavePoolIndex}】仍然不可用，下一次恢复检查时间：{DateTime.Now.AddSeconds(interval)}，错误：({ex.Message})");
+					}
 				}
+				bool isRestored = false;
 				if (pool.IsAvailable == false) {
 					lock (slaveLock) {
 						if (pool.IsAvailable == false) {
 							slaveUnavailables--;
 							pool.IsAvailable = true;
+							isRestored = true;
 						}
 					}
 				}
+				if (isRestored)
+					Log.LogError($"【从库{slavePoolIndex}】已恢复工作");
 			}).Start();
 		}
 
@@ -86,7 +98,7 @@ namespace MySql.Data.MySqlClient {
 					this.SlavePools.Where(sp => sp.IsAvailable).ToList());
 				if (availables.Any()) {
 					isSlave = true;
-					pool = availables.Count == 1 ? this.SlavePools[0] : availables[slaveRandom.Next(availables.Count)];
+					pool = availables.Count == 1 ? availables[0] : availables[slaveRandom.Next(availables.Count)];
 				}
 			}
 
@@ -100,6 +112,7 @@ namespace MySql.Data.MySqlClient {
 					bool isSlaveFail = false;
 					try {
 						if (cmd.Connection.State == ConnectionState.Closed || cmd.Connection.Ping() == false) cmd.Connection.Open();
+						//if (slaveRandom.Next(100) % 2 == 0) throw new Exception("测试从库抛出异常");
 					} catch {
 						isSlaveFail = true;
 					}
@@ -109,7 +122,7 @@ namespace MySql.Data.MySqlClient {
 							pool.ReleaseConnection(pc.conn);
 							if (IsTracePerformance) logtxt += $"ReleaseConnection: {DateTime.Now.Subtract(logtxt_dt).TotalMilliseconds}ms Total: {DateTime.Now.Subtract(dt).TotalMilliseconds}ms";
 						}
-						LoggerException(pool, cmd, new Exception("连接失败，准备切换其他可用服务器，并启动定时恢复机制"), dt, logtxt);
+						LoggerException(pool, cmd, new Exception($"连接失败，准备切换其他可用服务器"), dt, logtxt, false);
 
 						bool isCheckAvailable = false;
 						if (pool.IsAvailable) {

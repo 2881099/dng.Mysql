@@ -2,6 +2,8 @@
 
 也是dotnetgen_mysql生成器所需mysql数据库基础封装
 
+https://github.com/2881099/dotnetGen_mysql
+
 # 安装
 
 > Install-Package dng.Mysql

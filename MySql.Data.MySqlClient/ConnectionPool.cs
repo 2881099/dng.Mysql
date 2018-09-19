@@ -15,7 +15,9 @@ namespace MySql.Data.MySqlClient {
 		public Queue<Connection2> FreeConnections = new Queue<Connection2>();
 		public Queue<ManualResetEventSlim> GetConnectionQueue = new Queue<ManualResetEventSlim>();
 		public Queue<TaskCompletionSource<Connection2>> GetConnectionAsyncQueue = new Queue<TaskCompletionSource<Connection2>>();
-		public bool IsAvailable = false;
+		private bool _isAvailable = true;
+		public bool IsAvailable { get => _isAvailable; set { _isAvailable = value; UnavailableTime = value ? null : new DateTime?(DateTime.Now); } }
+		public DateTime? UnavailableTime { get; set; }
 		private static object _lock = new object();
 		private static object _lock_GetConnectionQueue = new object();
 		private string _connectionString;
@@ -86,7 +88,7 @@ namespace MySql.Data.MySqlClient {
 		}
 
 		public void ReleaseConnection(Connection2 conn) {
-			//try { conn.SqlConnection.Close(); } catch { }
+			try { conn.SqlConnection.Close(); } catch { }
 			lock (_lock)
 				FreeConnections.Enqueue(conn);
 
