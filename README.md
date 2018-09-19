@@ -1,4 +1,4 @@
-对 Mysql.Data 进行的二次封装，包含连接池、缓存
+对 Mysql.Data 进行的二次封装，包含连接池、事务、缓存、读写分离
 
 也是dotnetgen_mysql生成器所需mysql数据库基础封装
 
