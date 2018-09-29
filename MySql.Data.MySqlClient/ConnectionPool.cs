@@ -13,7 +13,7 @@ namespace MySql.Data.MySqlClient {
 		private int _poolsize = 50;
 		public List<Connection2> AllConnections = new List<Connection2>();
 		public Queue<Connection2> FreeConnections = new Queue<Connection2>();
-		public Queue<ManualResetEventSlim> GetConnectionQueue = new Queue<ManualResetEventSlim>();
+		public Queue<GetConnectionQueueItem> GetConnectionQueue = new Queue<GetConnectionQueueItem>();
 		public Queue<TaskCompletionSource<Connection2>> GetConnectionAsyncQueue = new Queue<TaskCompletionSource<Connection2>>();
 		private bool _isAvailable = true;
 		public bool IsAvailable { get => _isAvailable; set { _isAvailable = value; UnavailableTime = value ? null : new DateTime?(DateTime.Now); } }
@@ -59,11 +59,12 @@ namespace MySql.Data.MySqlClient {
 			if (string.IsNullOrEmpty(ConnectionString)) throw new Exception("ConnectionString 未设置");
 			var conn = GetFreeConnection();
 			if (conn == null) {
-				ManualResetEventSlim wait = new ManualResetEventSlim(false);
+				var queueItem = new GetConnectionQueueItem();
 				lock (_lock_GetConnectionQueue)
-					GetConnectionQueue.Enqueue(wait);
-				if (wait.Wait(TimeSpan.FromSeconds(10)))
+					GetConnectionQueue.Enqueue(queueItem);
+				if (queueItem.Wait.Wait(TimeSpan.FromSeconds(10)))
 					return GetConnection();
+				queueItem.IsTimeout = true;
 				throw new Exception("MySql.Data.MySqlClient.ConnectionPool.GetConnection 连接池获取超时（10秒）");
 			}
 			conn.ThreadId = Thread.CurrentThread.ManagedThreadId;
@@ -89,8 +90,6 @@ namespace MySql.Data.MySqlClient {
 
 		public void ReleaseConnection(Connection2 conn) {
 			try { conn.SqlConnection.Close(); } catch { }
-			lock (_lock)
-				FreeConnections.Enqueue(conn);
 
 			bool isAsync = false;
 			if (GetConnectionAsyncQueue.Count > 0) {
@@ -98,14 +97,35 @@ namespace MySql.Data.MySqlClient {
 				lock (_lock_GetConnectionQueue)
 					if (GetConnectionAsyncQueue.Count > 0)
 						tcs = GetConnectionAsyncQueue.Dequeue();
-				if (isAsync = (tcs != null)) tcs.TrySetResult(GetConnectionAsync().Result);
+				if (isAsync = (tcs != null)) tcs.TrySetResult(conn);
 			}
-			if (isAsync == false && GetConnectionQueue.Count > 0) {
-				ManualResetEventSlim wait = null;
-				lock (_lock_GetConnectionQueue)
-					if (GetConnectionQueue.Count > 0)
-						wait = GetConnectionQueue.Dequeue();
-				if (wait != null) wait.Set();
+			if (isAsync == false) {
+				lock (_lock)
+					FreeConnections.Enqueue(conn);
+
+				while (GetConnectionQueue.Count > 0) {
+					GetConnectionQueueItem queueItem = null;
+					lock (_lock_GetConnectionQueue)
+						if (GetConnectionQueue.Count > 0)
+							queueItem = GetConnectionQueue.Dequeue();
+					if (queueItem != null && queueItem.IsTimeout == false) {
+						queueItem.Wait.Set();
+						queueItem.Dispose();
+						break;
+					}
+					if (queueItem != null)
+						queueItem.Dispose();
+				}
+			}
+		}
+
+		public class GetConnectionQueueItem : IDisposable {
+			public ManualResetEventSlim Wait { get; set; } = new ManualResetEventSlim();
+			public bool IsTimeout { get; set; } = false;
+			public void Dispose() {
+				try {
+					if (Wait != null) Wait.Dispose();
+				} catch { }
 			}
 		}
 	}
