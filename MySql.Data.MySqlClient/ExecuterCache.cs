@@ -4,6 +4,7 @@ using Newtonsoft.Json;
 using System;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace MySql.Data.MySqlClient {
@@ -13,12 +14,11 @@ namespace MySql.Data.MySqlClient {
 		private bool CacheSupportMultiRemove = false;
 		public Executer(IDistributedCache cache, string masterConnectionString, string[] slaveConnectionStrings, ILogger log) {
 			Log = log;
-			MasterPool.ConnectionString = masterConnectionString;
+			MasterPool = new MySqlConnectionPool("主库", masterConnectionString, null, null);
 			Cache = cache;
 			if (slaveConnectionStrings != null) {
-				foreach(var slaveConnectionString in slaveConnectionStrings) {
-					var slavePool = new ConnectionPool();
-					slavePool.ConnectionString = slaveConnectionString;
+				foreach (var slaveConnectionString in slaveConnectionStrings) {
+					var slavePool = new MySqlConnectionPool($"从库{SlavePools.Count + 1}", slaveConnectionString, () => Interlocked.Decrement(ref slaveUnavailables), () => Interlocked.Increment(ref slaveUnavailables));
 					SlavePools.Add(slavePool);
 				}
 			}
@@ -35,6 +35,7 @@ namespace MySql.Data.MySqlClient {
 				}
 			}
 		}
+
 		/// <summary>
 		/// 循环或批量删除缓存键，项目启动时检测：Cache.Remove("key1|key2") 若成功删除 key1、key2，说明支持批量删除
 		/// </summary>
