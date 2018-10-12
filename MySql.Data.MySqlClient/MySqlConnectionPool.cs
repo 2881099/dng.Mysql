@@ -59,14 +59,19 @@ namespace MySql.Data.MySqlClient {
 		}
 
 
-		public bool OnCheckAvailable(MySqlConnection obj) {
-			if (obj.Ping() == false) obj.Open();
-			return obj.Ping();
+		public bool OnCheckAvailable(Object<MySqlConnection> obj) {
+			if (obj.Value.Ping() == false) obj.Value.Open();
+			return obj.Value.Ping();
 		}
 
 		public MySqlConnection OnCreate() {
 			var conn = new MySqlConnection(_connectionString);
 			return conn;
+		}
+
+		public void OnDestroy(MySqlConnection obj) {
+			if (obj.State != ConnectionState.Closed) obj.Close();
+			obj.Dispose();
 		}
 
 		public void OnGet(Object<MySqlConnection> obj) {
