@@ -27,7 +27,7 @@ namespace MySql.Data.MySqlClient {
 				var key2 = $"testCacheSupportMultiRemove{Guid.NewGuid().ToString("N")}";
 				cache.Set(key1, new byte[] { 65 });
 				cache.Set(key2, new byte[] { 65 });
-				cache.Remove($"{key1}|{key2}");
+				try { cache.Remove($"{key1}|{key2}"); } catch { } // redis-cluster 不允许执行 multi keys 命令
 				CacheSupportMultiRemove = cache.Get(key1) == null && cache.Get(key2) == null;
 				if (CacheSupportMultiRemove == false) {
 					log.LogWarning("PSqlHelper Warning: 低性能, IDistributedCache 没现实批量删除缓存 Cache.Remove(\"key1|key2\").");

@@ -27,7 +27,7 @@ namespace MySql.Data.MySqlClient {
 
 		public void Return(Object<MySqlConnection> obj, Exception exception, bool isRecreate = false) {
 			if (exception != null && exception is MySqlException) {
-				try { if (obj.Value.Ping() == false) obj.Value.Open(); } catch { base.SetUnavailable(); }
+				try { if (obj.Value.Ping() == false) obj.Value.Open(); } catch { base.SetUnavailable(exception); }
 			}
 			base.Return(obj, isRecreate);
 		}
@@ -82,9 +82,9 @@ namespace MySql.Data.MySqlClient {
 
 					try {
 						obj.Value.Open();
-					} catch {
-						if (_pool.SetUnavailable() == true)
-							throw new Exception($"【{this.Name}】状态不可用，等待后台检查程序恢复方可使用。");
+					} catch (Exception ex) {
+						if (_pool.SetUnavailable(ex) == true)
+							throw new Exception($"【{this.Name}】状态不可用，等待后台检查程序恢复方可使用。{ex.Message}");
 					}
 				}
 			}
@@ -98,9 +98,9 @@ namespace MySql.Data.MySqlClient {
 
 					try {
 						await obj.Value.OpenAsync();
-					} catch {
-						if (_pool.SetUnavailable() == true)
-							throw new Exception($"【{this.Name}】状态不可用，等待后台检查程序恢复方可使用。");
+					} catch (Exception ex) {
+						if (_pool.SetUnavailable(ex) == true)
+							throw new Exception($"【{this.Name}】状态不可用，等待后台检查程序恢复方可使用。{ex.Message}");
 					}
 				}
 			}
