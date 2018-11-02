@@ -142,7 +142,7 @@ namespace MySql.Data.MySqlClient {
 			int val = 0;
 			Exception ex = null;
 			try {
-				if (cmd.Connection.State == ConnectionState.Closed || cmd.Connection.Ping() == false) await cmd.Connection.OpenAsync();
+				if (cmd.Connection == null) cmd.Connection = (conn = await this.MasterPool.GetAsync()).Value;
 				val = await cmd.ExecuteNonQueryAsync();
 			} catch (Exception ex2) {
 				ex = ex2;
