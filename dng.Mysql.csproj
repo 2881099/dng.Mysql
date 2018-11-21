@@ -4,7 +4,7 @@
     <AssemblyName>dng.Mysql</AssemblyName>
     <PackageId>dng.Mysql</PackageId>
     <RootNamespace>dng.Mysql</RootNamespace>
-    <Version>1.2.1</Version>
+    <Version>1.2.2</Version>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageProjectUrl>https://github.com/2881099/dng.Mysql</PackageProjectUrl>
     <Description>dotnetgen_mysql生成器所需mysql数据库基础封装</Description>
@@ -21,7 +21,7 @@
 	  <PackageReference Include="Microsoft.Extensions.Logging" Version="2.1.1" />
 	  <PackageReference Include="Newtonsoft.Json" Version="11.0.2" />
 	  <PackageReference Include="MySql.Data" Version="8.0.12" />
-    <PackageReference Include="SafeObjectPool" Version="1.0.11" />
+    <PackageReference Include="SafeObjectPool" Version="1.0.12" />
 	  <PackageReference Include="System.Memory" Version="4.5.1" />
 	  <PackageReference Include="System.ValueTuple" Version="4.5.0" />
 	</ItemGroup>
