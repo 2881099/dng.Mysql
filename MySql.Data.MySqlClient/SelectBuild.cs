@@ -168,6 +168,11 @@ namespace MySql.Data.MySqlClient {
 			}
 			return dr.IsDBNull(++dataIndex) ? null : dr.GetValue(dataIndex);
 		}
+		/// <summary>
+		/// 执行SQL，若查询语句存在记录则返回 true，否则返回 false
+		/// </summary>
+		/// <returns></returns>
+		public bool Any() => this.AggregateScalar<long>("1") == 1;
 		protected SelectBuild<TReturnInfo> Master() {
 			_select = " SELECT "; // ExecuteReader 内会判断 StartsWith("SELECT ")，才使用从库查询
 			return this;
