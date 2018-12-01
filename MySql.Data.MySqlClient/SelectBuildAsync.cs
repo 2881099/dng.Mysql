@@ -30,15 +30,18 @@ namespace MySql.Data.MySqlClient {
 					Type type = info.GetType();
 					ret.Add(info);
 					if (cacheList != null) cacheList.Add(type.GetMethod("Stringify").Invoke(info, null));
+					var fillps = new List<(string memberAccessPath, object value)>();
 					for (int b = 0; b < objNames.Length; b++) {
 						var read2 = await _dals[b + 1].GetItemAsync(dr, dataIndex);
 						object obj = read2.result;
 						dataIndex = read2.dataIndex;
-						PropertyInfo prop = type.GetProperty(objNames[b]);
-						if (prop == null) throw new Exception(string.Concat(type.FullName, " 没有定义属性 ", objNames[b]));
-						if (obj != null) prop.SetValue(info, obj, null);
+						var alias = _dalsAlias[b + 1];
+						fillps.Add((alias.StartsWith("`Obj_") && alias.EndsWith("`") ? alias.Trim('`') : objNames[b], obj));
 						if (cacheList != null) cacheList.Add(obj?.GetType().GetMethod("Stringify").Invoke(obj, null));
 					}
+					fillps.Sort((x, y) => x.memberAccessPath.Length.CompareTo(y.memberAccessPath.Length));
+					foreach (var fillp in fillps)
+						FillPropertyValue(info, fillp.memberAccessPath, fillp.value);
 				}, CommandType.Text, sql);
 				return ret;
 			}, list => JsonConvert.SerializeObject(cacheList), cacheValue => ToListDeserialize(cacheValue, objNames));

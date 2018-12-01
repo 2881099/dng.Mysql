@@ -84,13 +84,16 @@ namespace MySql.Data.MySqlClient {
 					Type type = info.GetType();
 					ret.Add(info);
 					if (cacheList != null) cacheList.Add(type.GetMethod("Stringify").Invoke(info, null));
+					var fillps = new List<(string memberAccessPath, object value)>();
 					for (int b = 0; b < objNames.Length; b++) {
 						object obj = _dals[b + 1].GetItem(dr, ref index);
-						PropertyInfo prop = type.GetProperty(objNames[b]);
-						if (prop == null) throw new Exception(string.Concat(type.FullName, " 没有定义属性 ", objNames[b]));
-						if (obj != null) prop.SetValue(info, obj, null);
+						var alias = _dalsAlias[b + 1];
+						fillps.Add((alias.StartsWith("`Obj_") && alias.EndsWith("`") ? alias.Trim('`') : objNames[b], obj));
 						if (cacheList != null) cacheList.Add(obj?.GetType().GetMethod("Stringify").Invoke(obj, null));
 					}
+					fillps.Sort((x, y) => x.memberAccessPath.Length.CompareTo(y.memberAccessPath.Length));
+					foreach (var fillp in fillps)
+						FillPropertyValue(info, fillp.memberAccessPath, fillp.value);
 				}, CommandType.Text, sql);
 				return ret;
 			}, list => JsonConvert.SerializeObject(cacheList), cacheValue => ToListDeserialize(cacheValue, objNames));
@@ -106,16 +109,31 @@ namespace MySql.Data.MySqlClient {
 			for (int a = 0, skip = objNames.Length + 1; a < vs.Length; a += skip) {
 				TReturnInfo info = (TReturnInfo) parses[0].Invoke(null, new object[] { vs[a] });
 				if (info == null) continue;
-				Type type = info.GetType();
+				var fillps = new List<(string memberAccessPath, object value)>();
 				for (int b = 1; b < parses.Length; b++) {
 					object item = parses[b].Invoke(null, new object[] { vs[a + b] });
 					if (item == null) continue;
-					PropertyInfo prop = type.GetProperty(objNames[b - 1]);
-					if (prop != null) prop.SetValue(info, item, null);
+					var alias = _dalsAlias[b];
+					fillps.Add((alias.StartsWith("`Obj_") && alias.EndsWith("`") ? alias.Trim('`') : objNames[b - 1], item));
 				}
+				fillps.Sort((x, y) => x.memberAccessPath.Length.CompareTo(y.memberAccessPath.Length));
+				foreach (var fillp in fillps)
+					FillPropertyValue(info, fillp.memberAccessPath, fillp.value);
 				ret.Add(info);
 			}
 			return ret;
+		}
+		private void FillPropertyValue(object info, string memberAccessPath, object value) {
+			var current = info;
+			PropertyInfo prop = null;
+			var members = memberAccessPath.Split('.');
+			for (var a = 0; a < members.Length; a++) {
+				var type = current.GetType();
+				prop = type.GetProperty(members[a]);
+				if (prop == null) throw new Exception(string.Concat(type.FullName, " 没有定义属性 ", members[a]));
+				if (a < members.Length - 1) current = prop.GetValue(current);
+			}
+			if (value != null) prop.SetValue(current, value, null);
 		}
 		public List<TReturnInfo> ToList() {
 			return this.ToList(0);
