@@ -68,7 +68,7 @@ namespace MySql.Data.MySqlClient {
 			string[] objNames = new string[_dals.Count - 1];
 			for (int b = 1; b < _dals.Count; b++) {
 				string name = _dals[b].GetType().Name;
-				objNames[b - 1] = string.Concat("Obj_", name[0].ToString().ToLower(), name.Substring(1));
+				objNames[b - 1] = string.Concat("Obj_", name);
 			}
 			if (expireSeconds > 0 && string.IsNullOrEmpty(cacheKey)) {
 				sql = this.ToString();
@@ -129,7 +129,7 @@ namespace MySql.Data.MySqlClient {
 			var members = memberAccessPath.Split('.');
 			for (var a = 0; a < members.Length; a++) {
 				var type = current.GetType();
-				prop = type.GetProperty(members[a]);
+				prop = type.GetProperty(members[a], BindingFlags.IgnoreCase);
 				if (prop == null) throw new Exception(string.Concat(type.FullName, " 没有定义属性 ", members[a]));
 				if (a < members.Length - 1) current = prop.GetValue(current);
 			}

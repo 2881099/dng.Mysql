@@ -12,7 +12,7 @@ namespace MySql.Data.MySqlClient {
 			string[] objNames = new string[_dals.Count - 1];
 			for (int b = 1; b < _dals.Count; b++) {
 				string name = _dals[b].GetType().Name;
-				objNames[b - 1] = string.Concat("Obj_", name[0].ToString().ToLower(), name.Substring(1));
+				objNames[b - 1] = string.Concat("Obj_", name);
 			}
 			if (expireSeconds > 0 && string.IsNullOrEmpty(cacheKey)) {
 				sql = this.ToString();
