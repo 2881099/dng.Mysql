@@ -129,7 +129,7 @@ namespace MySql.Data.MySqlClient {
 			var members = memberAccessPath.Split('.');
 			for (var a = 0; a < members.Length; a++) {
 				var type = current.GetType();
-				prop = type.GetProperty(members[a], BindingFlags.IgnoreCase);
+				prop = type.GetProperty(members[a], BindingFlags.Public | BindingFlags.IgnoreCase | BindingFlags.Instance);
 				if (prop == null) throw new Exception(string.Concat(type.FullName, " 没有定义属性 ", members[a]));
 				if (a < members.Length - 1) current = prop.GetValue(current);
 			}
