@@ -33,6 +33,8 @@ namespace MySql.Data.MySqlClient {
 		/// <returns></returns>
 		public new TLinket Master() => base.Master() as TLinket;
 		public new TLinket Count(out long count) => base.Count(out count) as TLinket;
+		public new TLinket WhereLike(Expression<Func<TReturnInfo, string[]>> expression, string pattern, bool isNotLike = false) => base.WhereLike(expression, pattern, isNotLike) as TLinket;
+		public new TLinket WhereLike(Expression<Func<TReturnInfo, string>> expression, string pattern, bool isNotLike = false) => base.WhereLike(expression, pattern, isNotLike) as TLinket;
 		public new TLinket Where(Expression<Func<TReturnInfo, bool>> expression) => base.Where(expression) as TLinket;
 		public new TLinket Where(string filter, params object[] parms) => base.Where(true, filter, parms) as TLinket;
 		public new TLinket Where(bool isadd, string filter, params object[] parms) => base.Where(isadd, filter, parms) as TLinket;
@@ -258,6 +260,31 @@ namespace MySql.Data.MySqlClient {
 			_join = string.Concat(_join, " \r\n", joinType, " ", dal.Table, " ", alias, " ON ", on);
 			return this;
 		}
+		protected SelectBuild<TReturnInfo> WhereLike(Expression<Func<TReturnInfo, string[]>> expression, string pattern, bool isNotLike = false) {
+			if (string.IsNullOrEmpty(pattern)) return this;
+			var filter = "";
+			var arrexp = (expression?.Body as NewArrayExpression);
+			if (arrexp == null || arrexp.Expressions.Any() == false) return this;
+
+			foreach(var itemexp in arrexp.Expressions) {
+				var exp = this.ParseMemberExpression(itemexp as MemberExpression);
+				if (exp.dal != null) {
+					_table = string.Concat(_table, ", ", exp.dal.Table, " ", exp.alias);
+				}
+				filter += string.Concat(" OR ", Executer.Addslashes($"{exp.exp} {(isNotLike ? "NOT LIKE" : "LIKE")} {{0}}", pattern));
+			}
+			if (string.IsNullOrEmpty(filter)) return this;
+			return this.Where(true, filter.Substring(4));
+		}
+		protected SelectBuild<TReturnInfo> WhereLike(Expression<Func<TReturnInfo, string>> expression, string pattern, bool isNotLike = false) {
+			if (string.IsNullOrEmpty(pattern)) return this;
+			var exp = this.ParseExpression(expression?.Body as MemberExpression);
+			if (exp.dal != null) {
+				_table = string.Concat(_table, ", ", exp.dal.Table, " ", exp.alias);
+			}
+			if (string.IsNullOrEmpty(exp.exp)) return this;
+			return this.Where(true, Executer.Addslashes($"{exp.exp} {(isNotLike ? "NOT LIKE" : "LIKE")} {{0}}", pattern));
+		}
 		protected SelectBuild<TReturnInfo> Where(Expression<Func<TReturnInfo, bool>> expression) {
 			var exp = this.ParseExpression(expression);
 			if (exp.dal != null) {
@@ -349,6 +376,11 @@ namespace MySql.Data.MySqlClient {
 				var left = ParseExpression(expBinary.Left);
 				string oper = GetExpressionOperatorString(expBinary);
 				var right = ParseExpression(expBinary.Right);
+				if (left.exp == "NULL") {
+					var tmp = right;
+					right = left;
+					left = tmp;
+				}
 				if (right.exp == "NULL") oper = oper == "=" ? " IS " : " IS NOT ";
 				var dal = left.dal ?? right.dal;
 				string alias = null;
