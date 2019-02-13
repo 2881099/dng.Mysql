@@ -4,7 +4,7 @@
     <AssemblyName>dng.Mysql</AssemblyName>
     <PackageId>dng.Mysql</PackageId>
     <RootNamespace>dng.Mysql</RootNamespace>
-    <Version>1.3.6</Version>
+    <Version>1.3.7</Version>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageProjectUrl>https://github.com/2881099/dng.Mysql</PackageProjectUrl>
     <Description>dotnetgen_mysql生成器所需mysql数据库基础封装</Description>
