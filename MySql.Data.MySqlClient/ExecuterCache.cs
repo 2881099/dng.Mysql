@@ -30,7 +30,7 @@ namespace MySql.Data.MySqlClient {
 				try { cache.Remove($"{key1}|{key2}"); } catch { } // redis-cluster 不允许执行 multi keys 命令
 				CacheSupportMultiRemove = cache.Get(key1) == null && cache.Get(key2) == null;
 				if (CacheSupportMultiRemove == false) {
-					log.LogWarning("PSqlHelper Warning: 低性能, IDistributedCache 没现实批量删除缓存 Cache.Remove(\"key1|key2\").");
+					log.LogWarning("PSqlHelper Warning: 低性能, IDistributedCache 没实现批量删除缓存 Cache.Remove(\"key1|key2\").");
 					CacheRemove(key1, key2);
 				}
 			}
@@ -69,7 +69,7 @@ namespace MySql.Data.MySqlClient {
 		/// <returns></returns>
 		public T CacheShell<T>(string key, int timeoutSeconds, Func<T> getData, Func<T, string> serialize = null, Func<string, T> deserialize = null) {
 			if (timeoutSeconds <= 0) return getData();
-			if (Cache == null) throw new Exception("缓存现实 IDistributedCache 为 null");
+			if (Cache == null) throw new Exception("缓存实现 IDistributedCache 为 null");
 			var cacheValue = Cache.Get(key);
 			if (cacheValue != null) {
 				try {
@@ -97,7 +97,7 @@ namespace MySql.Data.MySqlClient {
 		/// <returns></returns>
 		public T CacheShell<T>(string key, string field, int timeoutSeconds, Func<T> getData, Func<(T, long), string> serialize = null, Func<string, (T, long)> deserialize = null) {
 			if (timeoutSeconds <= 0) return getData();
-			if (Cache == null) throw new Exception("缓存现实 IDistributedCache 为 null");
+			if (Cache == null) throw new Exception("缓存实现 IDistributedCache 为 null");
 			var hashkey = $"{key}:{field}";
 			var cacheValue = Cache.Get(hashkey);
 			if (cacheValue != null) {
@@ -126,7 +126,7 @@ namespace MySql.Data.MySqlClient {
 		/// <returns></returns>
 		async public Task<T> CacheShellAsync<T>(string key, int timeoutSeconds, Func<Task<T>> getDataAsync, Func<T, string> serialize = null, Func<string, T> deserialize = null) {
 			if (timeoutSeconds <= 0) return await getDataAsync();
-			if (Cache == null) throw new Exception("缓存现实 IDistributedCache 为 null");
+			if (Cache == null) throw new Exception("缓存实现 IDistributedCache 为 null");
 			var cacheValue = await Cache.GetAsync(key);
 			if (cacheValue != null) {
 				try {
@@ -154,7 +154,7 @@ namespace MySql.Data.MySqlClient {
 		/// <returns></returns>
 		async public Task<T> CacheShellAsync<T>(string key, string field, int timeoutSeconds, Func<Task<T>> getDataAsync, Func<(T, long), string> serialize = null, Func<string, (T, long)> deserialize = null) {
 			if (timeoutSeconds <= 0) return await getDataAsync();
-			if (Cache == null) throw new Exception("缓存现实 IDistributedCache 为 null");
+			if (Cache == null) throw new Exception("缓存实现 IDistributedCache 为 null");
 			var hashkey = $"{key}:{field}";
 			var cacheValue = await Cache.GetAsync(hashkey);
 			if (cacheValue != null) {
