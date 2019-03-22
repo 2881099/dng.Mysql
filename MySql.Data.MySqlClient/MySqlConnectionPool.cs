@@ -39,6 +39,7 @@ namespace MySql.Data.MySqlClient {
 		public string Name { get; set; } = "MySQL MySqlConnection 对象池";
 		public int PoolSize { get; set; } = 100;
 		public TimeSpan SyncGetTimeout { get; set; } = TimeSpan.FromSeconds(10);
+		public TimeSpan IdleTimeout { get; set; } = TimeSpan.Zero;
 		public int AsyncGetCapacity { get; set; } = 10000;
 		public bool IsThrowGetTimeoutException { get; set; } = true;
 		public int CheckAvailableInterval { get; set; } = 5;
